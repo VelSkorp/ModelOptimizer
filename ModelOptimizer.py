@@ -1,16 +1,19 @@
 import torch
-from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
-# Load the pre-trained model
+# Specify any Seq2Seq model name from the Hugging Face Hub
 model_name = "facebook/m2m100_418M"
-model = M2M100ForConditionalGeneration.from_pretrained(model_name)
+
+# Load the pre-trained model and tokenizer
+model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
 model.eval()
+tokenizer = AutoTokenizer.from_pretrained(model_name)
 
 # Disable `use_cache` to make the model TorchScript-compatible
 model.config.use_cache = False
 
 # Apply dynamic quantization
-model_int8 = torch.quantization.quantize_dynamic(
+quantized_model = torch.quantization.quantize_dynamic(
     model, {torch.nn.Linear}, dtype=torch.qint8
 )
 
@@ -23,7 +26,7 @@ example_decoder_input_ids = torch.randint(0, vocab_size, (1, 10), dtype=torch.lo
 # Define a wrapper class for TorchScript compatibility
 class ScriptWrapper(torch.nn.Module):
     def __init__(self, model):
-        super(ScriptWrapper, self).__init__()
+        super().__init__()
         self.model = model
 
     def forward(self, input_ids, attention_mask, decoder_input_ids):
@@ -35,7 +38,7 @@ class ScriptWrapper(torch.nn.Module):
         return outputs.logits
 
 # Create an instance of the wrapper
-script_wrapper = ScriptWrapper(model_int8)
+script_wrapper = ScriptWrapper(quantized_model)
 
 # Trace the model
 traced_model = torch.jit.trace(
@@ -44,10 +47,12 @@ traced_model = torch.jit.trace(
     strict=False  # Allow non-traceable code paths
 )
 
-# Save the model configuration and tokenizer for use in Rust
-model.config.save_pretrained("./m2m100_quantized")
-tokenizer = M2M100Tokenizer.from_pretrained(model_name)
-tokenizer.save_pretrained("./m2m100_quantized")
+# Save the model configuration and tokenizer
+output_directory = "./quantized_model"
+model.config.save_pretrained(output_directory)
+tokenizer.save_pretrained(output_directory)
 
 # Save the traced model
-traced_model.save("./m2m100_quantized/m2m100_quantized.pt")
+traced_model_path = f"{output_directory}/model_quantized.pt"
+traced_model.save(traced_model_path)
+print(f"Quantized TorchScript model saved to {traced_model_path}")
