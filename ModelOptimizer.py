@@ -12,16 +12,18 @@ tokenizer = AutoTokenizer.from_pretrained(model_name)
 # Disable `use_cache` to make the model TorchScript-compatible
 model.config.use_cache = False
 
+# Automatically infer maximum sequence length
+max_seq_length = tokenizer.model_max_length
+
 # Apply dynamic quantization
 quantized_model = torch.quantization.quantize_dynamic(
     model, {torch.nn.Linear}, dtype=torch.qint8
 )
 
-# Prepare example inputs
-vocab_size = model.config.vocab_size
-example_input_ids = torch.randint(0, vocab_size, (1, 10), dtype=torch.long)
-example_attention_mask = torch.ones((1, 10), dtype=torch.long)
-example_decoder_input_ids = torch.randint(0, vocab_size, (1, 10), dtype=torch.long)
+# Validate and limit example inputs to the maximum sequence length
+example_input_ids = torch.randint(0, model.config.vocab_size, (1, max_seq_length), dtype=torch.long)
+example_attention_mask = torch.ones((1, max_seq_length), dtype=torch.long)
+example_decoder_input_ids = torch.randint(0, model.config.vocab_size, (1, max_seq_length), dtype=torch.long)
 
 # Define a wrapper class for TorchScript compatibility
 class ScriptWrapper(torch.nn.Module):
